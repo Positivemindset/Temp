@@ -4,7 +4,7 @@ steps:
       [
         'build',
         '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE_NAME}:${_TAG}',
-        '-f', 'infra/dev/hugoservice/Dockerfile',
+        '-f', 'Dockerfile',
         '.'
       ]
   - name: 'gcr.io/cloud-builders/docker'
