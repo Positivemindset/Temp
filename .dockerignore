@@ -1,0 +1,4 @@
+.git
+.github
+cloudbuild
+# keep 'site/' because we COPY it into the image
