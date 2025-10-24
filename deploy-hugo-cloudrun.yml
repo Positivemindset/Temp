@@ -2,11 +2,10 @@ name: Build and Deploy Hugo to Cloud Run
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
     paths:
-      - "infra/dev/hugoservice/**"
-      - "cloudbuild/cloudbuild-docker.yaml"
+      - "Dockerfile"
+      - "cloudbuild/**"
       - ".github/workflows/deploy-hugo-cloudrun.yml"
   workflow_dispatch:
 
@@ -15,24 +14,61 @@ permissions:
   contents: read
 
 env:
-  GCP_PROJECT_ID: harsha-6306683
+  # ---- GCP / Artifact Registry / Cloud Run ----
+  GCP_PROJECT_ID: bguk-harsha-dev-6306683
   GCP_REGION: europe-west1
-  GCS_STAGING_DIR: gs://harsha-cbbucket/cbcustom
+  GCS_STAGING_DIR: gs://harsha-dev-cbbucket/cbcustom
   AR_REPO: hugo-dev-repo-docker
   IMAGE_NAME: hugo-server
   SERVICE_NAME: hugo-server
 
+  # ---- Content repo (learning-pathway) ----
+  CONTENT_REPO: harsha-Technical-Platform/learning-pathway   # change if different
+  CONTENT_REF: main                                        # branch / tag / SHA
+  BASE_URL: "https://hugo-server.dev.co.uk/"          # optional: used by Dockerfile
+
 jobs:
   build:
-    name: Build and Push Hugo Image
+    name: Build and Push Image (with learning-pathway content)
     runs-on: ubuntu-latest
 
     outputs:
       SHORT_SHA: ${{ steps.vars.outputs.SHORT_SHA }}
 
     steps:
-      - name: Checkout
+      - name: Checkout this repo (hugo-service)
         uses: actions/checkout@v4
+
+      - name: Checkout learning-pathway (content + themes)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CONTENT_REPO }}
+          ref: ${{ env.CONTENT_REF }}
+          path: learning-pathway
+          # If private, uncomment next line and add a PAT secret with repo read access
+          token: ${{ secrets.CONTENT_REPO_PAT }}
+          # If themes are submodules, uncomment next line
+          # submodules: recursive
+
+      - name: Assemble Hugo site layout
+        run: |
+          set -euo pipefail
+          rm -rf site
+          mkdir -p site
+
+          # Copy gcp-learning/ (contains archetypes/, content/, config/hugo.toml, etc.) → site/
+          rsync -a learning-pathway/gcp-learning/ site/
+
+          # Bring over top-level themes/ if present
+          if [ -d learning-pathway/themes ]; then
+            mkdir -p site/themes
+            rsync -a learning-pathway/themes/ site/themes/
+          fi
+
+          echo "---- site/ tree (top-level) ----"
+          find site -maxdepth 2 -type d -print | sed 's#^\./##'
+          echo "---- config files present ----"
+          ls -la site | egrep 'hugo\.toml|config\.toml' || true
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -47,11 +83,9 @@ jobs:
 
       - name: Compute image tag
         id: vars
-        run: |
-          SHORT_SHA="${GITHUB_SHA::7}"
-          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_OUTPUT
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
-      - name: Build & Push Docker image via Cloud Build
+      - name: Build & Push via Cloud Build
         run: |
           gcloud builds submit \
             --project=$GCP_PROJECT_ID \
@@ -76,8 +110,7 @@ jobs:
           SHORT_SHA: ${{ needs.build.outputs.SHORT_SHA }}
         run: |
           IMAGE_URI="$GCP_REGION-docker.pkg.dev/$GCP_PROJECT_ID/$AR_REPO/$IMAGE_NAME:${SHORT_SHA}"
-
-          echo "Deploying image: $IMAGE_URI"
+          echo "Deploying $IMAGE_URI"
 
           gcloud run deploy "$SERVICE_NAME" \
             --image "$IMAGE_URI" \
@@ -92,8 +125,6 @@ jobs:
 
       - name: Show Cloud Run URL
         run: |
-          URL=$(gcloud run services describe "$SERVICE_NAME" \
-            --region "$GCP_REGION" \
-            --format='value(status.url)')
-          echo "Deployed successfully!"
-          echo "URL: $URL"
+          URL=$(gcloud run services describe "$SERVICE_NAME" --region "$GCP_REGION" --format='value(status.url)')
+          echo "✅ Deployed successfully"
+          echo "🌍 $URL"
