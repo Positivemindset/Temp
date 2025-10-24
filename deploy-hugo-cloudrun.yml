@@ -39,17 +39,25 @@ jobs:
       - name: Checkout this repo (hugo-service)
         uses: actions/checkout@v4
 
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.LP_APP_ID }}              # GitHub App ID (integer)
+          private-key: ${{ secrets.LP_APP_PRIVATE_KEY }} # PEM contents (multiline)
+          owner: harsha-Technical-Platform                 # org/owner where the app is installed
+          repositories: learning-pathway                 # repo(s) the token should access
+
+      # --- Use the App token to checkout the content repo ---
       - name: Checkout learning-pathway (content + themes)
         uses: actions/checkout@v4
         with:
           repository: ${{ env.CONTENT_REPO }}
           ref: ${{ env.CONTENT_REF }}
           path: learning-pathway
-          # If private, uncomment next line and add a PAT secret with repo read access
-          token: ${{ secrets.CONTENT_REPO_PAT }}
-          # If themes are submodules, uncomment next line
-          # submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
 
+          
       - name: Assemble Hugo site layout
         run: |
           set -euo pipefail
