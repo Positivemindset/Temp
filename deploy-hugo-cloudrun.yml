@@ -57,7 +57,34 @@ jobs:
           path: learning-pathway
           token: ${{ steps.app-token.outputs.token }}
 
-          
+      # --- Verify learning-pathway clone succeeded ---
+      - name: Verify learning-pathway clone
+        run: |
+          echo "Current working directory: $PWD"
+          echo "Listing top-level folders:"
+          ls -la
+          echo "---------------------------------------"
+      
+          if [ -d "learning-pathway" ]; then
+            echo "✅ 'learning-pathway' folder exists"
+            cd learning-pathway
+            echo "== Git status =="
+            git rev-parse --is-inside-work-tree
+            git rev-parse HEAD
+            git remote -v
+      
+            echo "== Top-level files and folders =="
+            ls -la
+      
+            echo "== Three-level directory tree =="
+            find . -maxdepth 3 -type d -print
+          else
+            echo "'learning-pathway' folder not found — checkout failed!"
+            echo "Current directory contents:"
+            ls -la
+            exit 1
+          fi
+    
       - name: Assemble Hugo site layout
         run: |
           set -euo pipefail
