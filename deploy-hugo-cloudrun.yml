@@ -66,7 +66,7 @@ jobs:
           echo "---------------------------------------"
       
           if [ -d "learning-pathway" ]; then
-            echo "✅ 'learning-pathway' folder exists"
+            echo "'learning-pathway' folder exists"
             cd learning-pathway
             echo "== Git status =="
             git rev-parse --is-inside-work-tree
@@ -85,25 +85,34 @@ jobs:
             exit 1
           fi
     
-      - name: Assemble Hugo site layout
+      - name: Assemble Hugo site layout 
         run: |
           set -euo pipefail
-          rm -rf site
+          echo "Starting assemble..."
           mkdir -p site
-
-          # Copy gcp-learning/ (contains archetypes/, content/, config/hugo.toml, etc.) → site/
-          rsync -a learning-pathway/gcp-learning/ site/
-
-          # Bring over top-level themes/ if present
-          if [ -d learning-pathway/themes ]; then
-            mkdir -p site/themes
-            rsync -a learning-pathway/themes/ site/themes/
+      
+          echo "Copying gcp-learning -> site"
+          if [ -d "learning-pathway/gcp-learning" ]; then
+            rsync -av --ignore-errors --exclude '.git/' --stats "learning-pathway/gcp-learning/" site/
+          else
+            echo "'learning-pathway/gcp-learning' folder not found"
+            find dtp-learning-pathway -maxdepth 2 -type d -print
+            exit 2
           fi
+      
+          echo "Copying themes -> site/themes"
+          if [ -d "learning-pathway/themes" ]; then
+            mkdir -p site/themes
+            rsync -av --ignore-errors --exclude '.git/' --stats "learning-pathway/themes/" site/themes/
+          else
+            echo "⚠️ No themes folder found under learning-pathway/"
+          fi
+      
+          echo "Final site structure:"
+          find site -maxdepth 3 -type d -print
+          echo "Config files present in site/:"
+          ls -la site | egrep 'hugo\.toml|config\.toml|config\.yaml' || true
 
-          echo "---- site/ tree (top-level) ----"
-          find site -maxdepth 2 -type d -print | sed 's#^\./##'
-          echo "---- config files present ----"
-          ls -la site | egrep 'hugo\.toml|config\.toml' || true
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
