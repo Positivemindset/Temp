@@ -1,0 +1,23 @@
+# pact-broker/cloudbuild/cloudbuild-docker.yaml
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build',
+      '-t','${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE_NAME}:${_TAG}',
+      '-f','pact-broker/Dockerfile',
+      'pact-broker'  # build context
+    ]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'push',
+      '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE_NAME}:${_TAG}'
+    ]
+
+substitutions:
+  _REGION: europe-west1
+  _AR_REPO: pact-dev-repo-docker
+  _IMAGE_NAME: pact-broker
+
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE_NAME}:${_TAG}'
