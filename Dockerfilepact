@@ -1,7 +1,7 @@
 # pact-broker/Dockerfile
 FROM pactfoundation/pact-broker:2.113.0-pactbroker2.107.1
 
-# Cloud Run sets $PORT; Broker uses PACT_BROKER_PORT. Set both to 8080.
+# Cloud Run health checks target $PORT; broker listens on PACT_BROKER_PORT.
 ENV PORT=8080 \
     PACT_BROKER_PORT=8080 \
     PACT_BROKER_LOG_LEVEL=INFO
