@@ -3,29 +3,32 @@ name: Build and Deploy Pact Broker to Cloud Run
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, feature/** ]
 
 permissions:
   id-token: write
   contents: read
 
 env:
-  GCP_PROJECT_ID: harsha-dev-6306683
+  # ---- GCP / service config ----
+  GCP_PROJECT_ID: bguk-backstage-dev-6306683
   GCP_REGION: europe-west1
-  GCS_STAGING_DIR: gs://backstage-dev-cbbucket/cbcustom
-  AR_REPO: pact-dev-repo-docker
-  IMAGE_NAME: pact-broker
-  SERVICE_NAME: pact-broker
-  # Cloud SQL instance connection string: PROJECT:REGION:INSTANCE
-  CLOUDSQL_INSTANCE: harsha-dev-6306683:europe-west1:dp-pactsql-dev
-  # Public base URL used by the broker when generating links (adjust if behind LB)
-  PACT_BASE_URL: https://pact-broker.dev.example.co.uk
+  AR_REPO: pactbroker-dev-repo-docker
+  IMAGE_NAME: pactbroker-service
+  SERVICE_NAME: pactbroker-service
+  # Cloud SQL instance connection name: PROJECT:REGION:INSTANCE
+  CLOUDSQL_INSTANCE: bguk-backstage-dev-6306683:europe-west1:postgres-pact-db
+  # Public/base URL used by the broker when generating links (adjust if behind LB)
+  PACT_BROKER_BASE_URL: https://pactbroker-service.dev.co.uk
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment: dev   # <- unlocks environment-scoped secrets
+
     outputs:
       SHORT_SHA: ${{ steps.vars.outputs.SHORT_SHA }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -35,9 +38,9 @@ jobs:
 
       - name: Configure gcloud & Docker
         run: |
-          gcloud config set project $GCP_PROJECT_ID
-          gcloud config set compute/region $GCP_REGION
-          gcloud auth configure-docker $GCP_REGION-docker.pkg.dev --quiet
+          gcloud config set project "$GCP_PROJECT_ID"
+          gcloud config set compute/region "$GCP_REGION"
+          gcloud auth configure-docker "$GCP_REGION-docker.pkg.dev" --quiet
 
       - id: vars
         run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
@@ -45,34 +48,59 @@ jobs:
       - name: Build & Push via Cloud Build
         run: |
           gcloud builds submit \
-            --project=$GCP_PROJECT_ID \
-            --region=$GCP_REGION \
-            --gcs-source-staging-dir=$GCS_STAGING_DIR \
-            --config=pact-broker/cloudbuild/cloudbuild-docker.yaml \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --config=cloudbuild/cloudbuild-docker.yaml \
             --substitutions=_TAG=${{ steps.vars.outputs.SHORT_SHA }}
 
   deploy:
     runs-on: ubuntu-latest
+    environment: dev
     needs: build
+
     steps:
+      - uses: actions/checkout@v4
+
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.DIGITAL_PLATFORM_PORTAL_GCS_CREDENTIALS }}
 
-      - name: Deploy Broker
+      - name: Configure gcloud
+        run: |
+          gcloud config set project "$GCP_PROJECT_ID"
+          gcloud config set compute/region "$GCP_REGION"
+
+      # Fail fast if required environment secrets are missing
+      - name: Validate DB secrets
+        run: |
+          [ -n "${{ secrets.PACT_DB_USER }}" ] || { echo "Missing PACT_DB_USER"; exit 1; }
+          [ -n "${{ secrets.PACT_DB_PASS }}" ] || { echo "Missing PACT_DB_PASS"; exit 1; }
+          DBNAME='${{ secrets.PACT_DB_NAME }}'
+          if [ -z "$DBNAME" ]; then DBNAME=postgres; fi
+          echo "DBNAME=$DBNAME" >> $GITHUB_ENV
+
+      # URL-encode password so @ ! : / etc. don't break the URI
+      - name: Encode DB password
+        run: |
+          ENCODED_PASS=$(python3 - <<'PY'
+import os, urllib.parse
+print(urllib.parse.quote(os.environ["PACT_DB_PASS"]))
+PY
+)
+          echo "ENCODED_PASS=$ENCODED_PASS" >> $GITHUB_ENV
+        env:
+          PACT_DB_PASS: ${{ secrets.PACT_DB_PASS }}
+
+      - name: Deploy to Cloud Run
         env:
           SHORT_SHA: ${{ needs.build.outputs.SHORT_SHA }}
         run: |
-          IMAGE_URI="$GCP_REGION-docker.pkg.dev/$GCP_PROJECT_ID/$AR_REPO/$IMAGE_NAME:${SHORT_SHA}"
-          echo "Deploying $IMAGE_URI"
+          IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:${SHORT_SHA}"
+          DATABASE_URL="postgres://${{ secrets.PACT_DB_USER }}:${ENCODED_PASS}@/cloudsql/${CLOUDSQL_INSTANCE}/${DBNAME}"
 
-          # DATABASE_URL that works on Cloud Run with Cloud SQL
-          # NOTE: host=/cloudsql/<INSTANCE> makes the unix socket connection.
-          DATABASE_URL="postgres://${{ secrets.PACT_DB_USER }}:${{ secrets.PACT_DB_PASS }}@/${{ secrets.PACT_DB_NAME }}?host=/cloudsql/${CLOUDSQL_INSTANCE}&sslmode=disable"
-
-          gcloud run deploy "$SERVICE_NAME" \
-            --image "$IMAGE_URI" \
-            --region "$GCP_REGION" \
+          gcloud run deploy "${SERVICE_NAME}" \
+            --image "${IMAGE_URI}" \
+            --region "${GCP_REGION}" \
             --platform managed \
             --ingress=internal-and-cloud-load-balancing \
             --no-allow-unauthenticated \
@@ -81,14 +109,12 @@ jobs:
             --memory 1Gi \
             --concurrency 80 \
             --timeout 600 \
-            --add-cloudsql-instances "$CLOUDSQL_INSTANCE" \
-            --set-env-vars "PORT=8080" \
+            --add-cloudsql-instances "${CLOUDSQL_INSTANCE}" \
+            # If you use a custom service account, uncomment and ensure it has roles/cloudsql.client
+            # --service-account "bguk-backstage-dev-6306683@appspot.gserviceaccount.com" \
             --set-env-vars "PACT_BROKER_PORT=8080" \
-            --set-env-vars "PACT_BROKER_DATABASE_URL=${DATABASE_URL}" \
-            --set-env-vars "PACT_BROKER_BASE_URL=${PACT_BASE_URL}" \
-            --set-env-vars "PACT_BROKER_LOG_LEVEL=INFO"
+            --set-env-vars "PACT_BROKER_LOG_LEVEL=INFO" \
+            --set-env-vars "PACT_BROKER_BASE_URL=${PACT_BROKER_BASE_URL}" \
+            --set-env-vars "PACT_BROKER_DATABASE_URL=${DATABASE_URL}"
 
-      - name: Show URL
-        run: |
-          URL=$(gcloud run services describe "$SERVICE_NAME" --region "$GCP_REGION" --format='value(status.url)')
-          echo "Deployed: $URL"
+          echo "Deployed URL: $(gcloud run services describe ${SERVICE_NAME} --region ${GCP_REGION} --format='value(status.url)')"
