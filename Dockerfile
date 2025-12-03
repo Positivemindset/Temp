@@ -24,3 +24,53 @@ EXPOSE 8080
 
 # Run Hugo dev server; Cloud Run injects $PORT
 CMD ["sh","-c","hugo server -D --bind 0.0.0.0 --port ${PORT} --baseURL ${BASE_URL} --appendPort=false"]
+
+
+
+
+name: Pact Contract Tests
+description: Executes pact contract tests for affected services.
+
+inputs:
+  head-sha:
+    description: 'HEAD commit SHA'
+    required: true
+  base-sha:
+    description: 'BASE commit SHA'
+    required: true
+
+runs:
+  using: composite
+  steps:
+
+    - name: Validate SHAs
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.head-sha }}" ] || [ -z "${{ inputs.base-sha }}" ]; then
+          echo "ERROR: Missing NX SHAs"; exit 1;
+        fi
+        echo "HEAD_SHA=${{ inputs.head-sha }}"
+        echo "BASE_SHA=${{ inputs.base-sha }}"
+
+    # Confirm npm registry points to JFrog (critical)
+    - name: Validate npm registry
+      shell: bash
+      run: npm config get registry
+
+    # Run the pact generation for all affected services
+    - name: Execute Pact Tests
+      shell: bash
+      env:
+        HEAD_SHA: ${{ inputs.head-sha }}
+        BASE_SHA: ${{ inputs.base-sha }}
+      run: |
+        echo "Running Pact generation:"
+        echo "HEAD_SHA=$HEAD_SHA"
+        echo "BASE_SHA=$BASE_SHA"
+
+        npm run generate:pacts -- \
+          --all \
+          --head="$HEAD_SHA" \
+          --base="$BASE_SHA"
+
+        echo "Pact tests completed successfully."
