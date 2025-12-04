@@ -28,6 +28,29 @@ CMD ["sh","-c","hugo server -D --bind 0.0.0.0 --port ${PORT} --baseURL ${BASE_UR
 
 
 
+# ---------------------------------------------------------
+# BUILD PREP WITH CACHING (REAL FIX)
+# ---------------------------------------------------------
 
+- name: Restore node_modules cache
+  uses: actions/cache@v3
+  with:
+    path: |
+      node_modules
+      */*/node_modules
+      */*/*/node_modules
+    key: node-modules-${{ runner.os }}-${{ hashFiles('**/yarn.lock') }}
+    restore-keys: |
+      node-modules-${{ runner.os }}-
+
+- name: Build prep
+  uses: ./.github/actions/build-prep
+  with:
+    should-extract-cache: ${{ steps.decide_cache.outputs.should_extract_cache }}
+  env:
+    NPMRC_B64: ${{ secrets.NPMRC_B64 }}
+
+- name: Install Yarn dependencies
+  run: yarn install --frozen-lockfile
 
 
