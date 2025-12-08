@@ -124,6 +124,84 @@ substitutions:
   _BACKEND_ID: ""
 
 
+name: K6 Performance Suite
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  run-k6-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+        with:
+          version: latest
+
+      - name: Build TypeScript
+        run: yarn build
+
+      - name: Run K6 Tests
+        run: |
+          mkdir -p reports
+
+          echo "🔹 Running API smoke test"
+          yarn test:api:smoke \
+            --out json=reports/api-smoke.json \
+            --summary-export=reports/api-smoke-summary.json || true
+
+          echo "🔹 Running API load test"
+          yarn test:api:load \
+            --out json=reports/api-load.json \
+            --summary-export=reports/api-load-summary.json || true
+
+          echo "🔹 Running API stress test"
+          yarn test:api:stress \
+            --out json=reports/api-stress.json \
+            --summary-export=reports/api-stress-summary.json || true
+
+          echo "🔹 Running UI load test"
+          yarn test:ui:load \
+            --out json=reports/ui-load.json \
+            --summary-export=reports/ui-load-summary.json || true
+
+          echo "🔹 Running Auth test"
+          yarn test:api:auth \
+            --out json=reports/api-auth.json \
+            --summary-export=reports/api-auth-summary.json || true
+
+          echo "🔹 Running REST test"
+          yarn test:api:rest \
+            --out json=reports/api-rest.json \
+            --summary-export=reports/api-rest-summary.json || true
+
+          echo "🔹 Running UI pages test"
+          yarn test:ui:pages \
+            --out json=reports/ui-pages.json \
+            --summary-export=reports/ui-pages-summary.json || true
+
+      - name: Upload K6 Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-performance-reports
+          path: reports/
+
 
 
 
