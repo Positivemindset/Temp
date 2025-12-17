@@ -194,13 +194,107 @@ jobs:
           echo "🔹 Running UI pages test"
           yarn test:ui:pages \
             --out json=reports/ui-pages.json \
+
+
+
+
+
+
+
+
+            
             --summary-export=reports/ui-pages-summary.json || true
 
       - name: Upload K6 Reports
         uses: actions/upload-artifact@v4
         with:
           name: k6-performance-reports
+
+          
           path: reports/
+
+
+
+
+
+
+          module "gce-lb-http" { # Keeping existing name for state consistency
+  source                = "optimus.bupa.com/bupa-tfe-admin/gcp-httpslb/module/modules/multi-target"
+  version               = "1.0.20"
+  project               = var.project_id
+  name                  = "bguk-advanced-xlb-europe-west1" # Existing Name
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  https_forwarding_rules = var.https_forwarding_rules_prod
+  https_proxies          = var.https_proxies_prod
+  ssl                   = true
+  firewall_networks     = var.firewall_networks
+  backends              = var.backends
+  default_backend       = "platform-prod-bend"
+}
+
+
+module "standard_xlb_nonprod" {
+  source                = "optimus.bupa.com/bupa-tfe-admin/gcp-httpslb/module/modules/multi-target"
+  version               = "1.0.20"
+  project               = var.project_id
+  name                  = "bguk-advanced-xlb-europe-west1-nonprod"
+  https_forwarding_rules = var.https_forwarding_rules_nonprod
+  https_proxies          = var.https_proxies_nonprod
+  ssl                   = true
+  firewall_networks     = var.firewall_networks
+  backends              = var.backends
+  default_backend       = "platform-dev-bend"
+}
+
+module "static_xlb_prod" {
+  source                = "optimus.bupa.com/bupa-tfe-admin/gcp-httpslb/module/modules/multi-frontend-static"
+  version               = "1.0.22"
+  project               = var.project_id
+  name                  = "bguk-advanced-uk-static-xlb-europe-west1-prod"
+  https_forwarding_rules = var.static_rules_prod
+  https_proxies          = var.static_proxies_prod
+  enable_backend_bucket  = true
+  bucket_project         = "bguk-staticquestion-6238406"
+}
+
+module "static_xlb_nonprod" {
+  source                = "optimus.bupa.com/bupa-tfe-admin/gcp-httpslb/module/modules/multi-frontend-static"
+  version               = "1.0.22"
+  project               = var.project_id
+  name                  = "bguk-advanced-uk-static-xlb-europe-west1-nonprod"
+  https_forwarding_rules = var.static_rules_nonprod
+  https_proxies          = var.static_proxies_nonprod
+  enable_backend_bucket  = true
+  bucket_project         = "bguk-staticquestion-6238406"
+}
+
+name: Deploy Unified Load Balancers
+on:
+  push:
+    branches: [ ext-lb-west1 ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.9.8
+      
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ./uknethub/external_lb/west1
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+        working-directory: ./uknethub/external_lb/west1
+        env:
+          TF_API_TOKEN: ${{ secrets.on_prem_api_token }}
+          TF_VAR_md5_auth_key_pri: ${{ secrets.TF_VAR_md5_auth_key_pri }}
+          TF_VAR_md5_auth_key_sec: ${{ secrets.TF_VAR_md5_auth_key_sec }}
+
 
 
 
