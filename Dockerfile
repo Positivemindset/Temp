@@ -193,10 +193,35 @@ jobs:
 
           echo "🔹 Running UI pages test"
           yarn test:ui:pages \
-            --out json=reports/ui-pages.json \
+            --out json=reports/ui-# This block establishes the connection to Terraform Cloud (TFE) 
+# and ensures all 4 load balancers are managed in ONE single state file.
+terraform {
+  cloud {
+    organization = "BGUK"
+    hostname     = "optimus.bupa.com"
 
+    workspaces {
+      # This is the single workspace that tracks all production 
+      # and non-production load balancer resources.
+      name = "bguk-shared-vpc-prod" 
+    }
+  }
 
+  required_version = ">= 1.9.8"
 
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = ">= 5.0.0"
+    }
+  }
+}
+
+# The provider block configures the project and region for GCP.
+provider "google" {
+  project = var.project_id
+  region  = var.region
+}
 
 
 
