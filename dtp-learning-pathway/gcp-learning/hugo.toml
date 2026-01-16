@@ -1,9 +1,0 @@
-baseURL = "https://digital-platform-learning.bupa.co.uk/"
-languageCode = "en-us"
-title = "BUPA GCP Learning Platform"
-theme = "learn"
-
-[params]
-  description = "Internal Learning platform for GCP Concepts"
-  showReadingTime = true
-  disableSearch = false
